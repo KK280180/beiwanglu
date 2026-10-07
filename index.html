@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>拍摄记录</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#F2F2F7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="拍摄记录">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" href="./icon-180.png">
+<style>
+:root{
+  --bg:#F2F2F7; --card:#FFFFFF; --sep:#D8D8DC; --sep-soft:#EBEBEF;
+  --text:#1C1C1E; --text-2:#6E6E73; --text-3:#8E8E93;
+  --blue:#0A84FF; --green:#34C759; --red:#FF3B30; --ink:#111111;
+  --r:14px; --shadow:0 1px 2px rgba(0,0,0,.06), 0 6px 18px rgba(0,0,0,.05);
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0}
+body{
+  background:var(--bg); color:var(--text); min-height:100vh;
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
+}
+button{font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer}
+input,textarea{font:inherit; color:inherit}
+img{display:block}
+
+/* ---------- 顶部月份 ---------- */
+.topbar{
+  position:sticky; top:0; z-index:30; background:rgba(242,242,247,.88);
+  backdrop-filter:saturate(180%) blur(18px); -webkit-backdrop-filter:saturate(180%) blur(18px);
+  padding:calc(var(--safe-t) + 10px) 14px 10px; border-bottom:1px solid var(--sep);
+}
+.monthbar{display:flex; align-items:center; gap:8px}
+.arrow{
+  width:40px; height:40px; border-radius:10px; display:grid; place-items:center;
+  border:1.5px solid var(--ink); background:var(--card); flex:0 0 auto;
+}
+.arrow:active{background:#E9E9EE}
+.arrow svg{width:22px; height:22px}
+.monthpill{
+  flex:1; min-width:0; height:40px; border:1.5px solid var(--ink); border-radius:10px; background:var(--card);
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  font-weight:700; font-size:17px; letter-spacing:.3px;
+}
+.monthpill .caret{width:9px; height:9px; border-right:2px solid var(--text-2); border-bottom:2px solid var(--text-2); transform:rotate(45deg) translateY(-2px); flex:0 0 auto}
+.gear{width:40px; height:40px; border:1.5px solid var(--ink); border-radius:10px; background:var(--card); display:grid; place-items:center; flex:0 0 auto}
+.gear svg{width:20px; height:20px}
+.monthsum{display:flex; justify-content:center; gap:16px; margin-top:9px; font-size:13px; color:var(--text-2)}
+.monthsum b{font-variant-numeric:tabular-nums; font-size:14px}
+.monthsum .n{color:var(--text)}
+.pos{color:var(--green)}
+.neg{color:var(--red)}
+
+/* ---------- 日期分组 ---------- */
+main{padding:12px 14px calc(96px + var(--safe-b))}
+.day{
+  background:var(--card); border:1.5px solid var(--ink); border-radius:var(--r);
+  box-shadow:var(--shadow); margin-bottom:12px; overflow:hidden;
+}
+.dayhead{display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1.5px solid var(--ink); flex-wrap:wrap}
+.dayhead .d{font-weight:700; font-size:16px; white-space:nowrap}
+.dayhead .w{font-size:12px; color:var(--text-3); white-space:nowrap}
+.dayhead .sp{flex:1; min-width:0}
+/* 统计放不下时自动折到下一行，而不是被截断 */
+.dayhead .sum{
+  flex:1 1 100%; order:9; margin-top:2px;
+  font-size:12.5px; color:var(--text-2); font-variant-numeric:tabular-nums;
+}
+.dayhead .sum:empty{display:none}
+.addbtn{
+  border:1.5px solid var(--ink); border-radius:9px; padding:5px 9px; font-size:13px; font-weight:600;
+  background:#FAFAFC; white-space:nowrap; flex:0 0 auto;
+}
+.addbtn:active{background:#E9E9EE}
+
+/* 卡片横滑：宽度撑满容器但不撑破页面 */
+.cards{
+  display:flex; gap:10px; padding:12px;
+  overflow-x:auto; overflow-y:hidden;
+  -webkit-overflow-scrolling:touch; scroll-snap-type:x proximity;
+  align-items:flex-start; min-width:0; max-width:100%;
+}
+.cards::-webkit-scrollbar{display:none}
+.card{
+  flex:0 0 118px; width:118px; text-align:left;
+  border:1.5px solid var(--ink); border-radius:12px; background:#FCFCFD; padding:8px;
+  align-self:flex-start; display:block; cursor:pointer;
+  min-height:176px; scroll-snap-align:start;
+}
+.day{overflow:hidden}
+/* 卡片之间顶部对齐：避免被最高的备注卡撑出一片空白 */
+.cards::after{content:''; flex:0 0 1px}
+.card:active{background:#F0F0F4}
+.slot{
+  width:100px; height:100px; border:1.5px solid var(--ink); border-radius:8px; overflow:hidden;
+  background:#fff; display:grid; place-items:center; margin-bottom:7px; position:relative;
+}
+.slot img{width:100%; height:100%; object-fit:cover}
+.slot .ph{font-size:12px; color:var(--text-3); font-weight:600; letter-spacing:1px}
+/* 没图时：备注占用图片位 */
+.slot.note{
+  border-style:solid; background:#FFFDF3; padding:6px; align-items:flex-start;
+  display:flex;
+}
+.slot.note .ntext{
+  font-size:12px; line-height:1.35; color:var(--text); text-align:left; width:100%;
+  display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;
+}
+.slot.note .nmark{position:absolute; right:4px; bottom:2px; font-size:10px; color:var(--text-3)}
+.card .acct{font-size:12.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.card .plat{font-size:11px; color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px}
+.card .money{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:2px}
+.card .money.unpaid{color:var(--text-3); font-weight:600; font-size:12.5px}
+.card .money .costline{display:block; font-size:11.5px; font-weight:600; color:var(--text-3); margin-top:1px; font-variant-numeric:tabular-nums}
+
+/* ---------- 空日期：和大组同高 ---------- */
+.day .cards.empty-cards{padding:12px; min-height:152px; align-items:center; justify-content:center}
+.day .cards.empty-cards .noitem{color:var(--text-3); font-size:13px}
+/* ---------- 拖拽 ---------- */
+.card.dragging{opacity:.35}
+.card.ghost{
+  position:fixed; z-index:90; pointer-events:none; opacity:.95;
+  box-shadow:0 12px 30px rgba(0,0,0,.3); transform:rotate(-2deg) scale(1.04);
+}
+.dropzone{background:#EAF6FF !important; border-color:var(--blue) !important}
+.day.dropday{border-color:var(--blue); box-shadow:0 0 0 3px rgba(10,132,255,.18)}
+/* 拖动时顶部实时显示落点 */
+.dragtip{
+  position:fixed; left:50%; top:calc(var(--safe-t) + 62px); transform:translateX(-50%);
+  background:rgba(10,132,255,.96); color:#fff; font-size:14px; font-weight:700;
+  padding:8px 16px; border-radius:20px; z-index:95; display:none; white-space:nowrap;
+  box-shadow:0 6px 18px rgba(10,132,255,.35);
+}
+.dragtip.show{display:block}
+.undo{
+  position:fixed; left:50%; bottom:calc(150px + var(--safe-b)); transform:translateX(-50%);
+  background:rgba(28,28,30,.95); color:#fff; border-radius:22px; padding:10px 8px 10px 16px;
+  display:none; align-items:center; gap:10px; z-index:85; font-size:14px; white-space:nowrap;
+}
+.undo.show{display:flex}
+.undo button{color:#5AC8FA; font-weight:700; padding:2px 8px}
+
+/* ---------- 空状态（改名为 .blank 避免和 .money.empty 撞车） ---------- */
+.blank{text-align:center; padding:64px 24px; color:var(--text-3)}
+.blank .big{font-size:15px; font-weight:600; color:var(--text-2); margin-bottom:6px}
+
+/* ---------- 悬浮添加 ---------- */
+.fab{
+  position:fixed; right:18px; bottom:calc(20px + var(--safe-b)); z-index:40;
+  width:56px; height:56px; border-radius:28px; background:var(--ink); color:#fff;
+  display:grid; place-items:center; box-shadow:0 8px 22px rgba(0,0,0,.28);
+}
+.fab:active{transform:scale(.96)}
+.fab svg{width:26px; height:26px}
+
+/* ---------- 弹出面板 ---------- */
+.sheet{position:fixed; inset:0; z-index:60; display:none; background:rgba(0,0,0,.35); align-items:flex-end}
+.sheet.open{display:flex}
+.panel{
+  width:100%; max-height:92vh; overflow-y:auto; background:var(--bg);
+  border-radius:18px 18px 0 0; padding:8px 16px calc(20px + var(--safe-b));
+  animation:up .22s ease-out;
+}
+@keyframes up{from{transform:translateY(24px); opacity:.6} to{transform:none; opacity:1}}
+.grab{width:38px; height:5px; border-radius:3px; background:#C7C7CC; margin:6px auto 12px}
+.panel h2{margin:0 0 4px; font-size:18px; text-align:center}
+.hint{margin:0 0 14px; font-size:12px; color:var(--text-3); text-align:center}
+.field{margin-bottom:12px}
+.field label{display:block; font-size:13px; color:var(--text-2); margin-bottom:5px; font-weight:600}
+.field label .opt{font-weight:400; color:var(--text-3)}
+.field input[type=text],.field input[type=date],.field textarea{
+  width:100%; padding:11px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff;
+  -webkit-appearance:none; appearance:none;
+}
+.field input[type=date]{min-height:44px}
+.field textarea{min-height:60px; resize:vertical}
+/* 平台选择器 */
+.chips{display:flex; flex-wrap:wrap; gap:8px}
+.chip{
+  border:1.5px solid var(--ink); border-radius:20px; padding:8px 14px; background:#fff;
+  font-size:14px; font-weight:600;
+}
+.chip.on{background:var(--ink); color:#fff}
+.chips .none{color:var(--text-3); border-color:var(--sep); font-weight:400}
+/* 账号建议：点一下就填上，不限制你输入别的 */
+.sugs{display:flex; flex-wrap:wrap; gap:6px; margin-top:7px}
+.sugs:empty{display:none}
+.sugs button{
+  border:1px solid var(--sep); border-radius:16px; padding:5px 11px; background:#fff;
+  font-size:13px; color:var(--text-2);
+}
+.sugs button:active{background:#EDEDF2}
+
+.pick{display:flex; align-items:center; gap:12px; border:1.5px dashed var(--sep); border-radius:12px; padding:12px; background:#fff}
+.pick img{width:64px; height:64px; border-radius:8px; object-fit:cover; border:1.5px solid var(--ink)}
+.pick .ph{width:64px; height:64px; border-radius:8px; border:1.5px dashed var(--sep); display:grid; place-items:center; color:var(--text-3); font-size:12px}
+.pick .txt{flex:1; min-width:0; font-size:13px; color:var(--text-2)}
+.pick .txt b{display:block; color:var(--text); font-size:14px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.linkbtn{color:var(--blue); font-size:14px; font-weight:600; padding:4px 0}
+/* 金额卡片：和图片栏同样的虚线卡片样式，里面两行 */
+.money-pick{display:block; padding:6px 12px}
+.mp-row{display:flex; align-items:center; gap:10px; padding:7px 0}
+.mp-row + .mp-row{border-top:1px solid var(--sep-soft)}
+.mp-tag{
+  flex:0 0 52px; font-size:14px; font-weight:700; color:var(--text-2);
+}
+.mp-row input{
+  flex:1; min-width:0; border:0; background:transparent; padding:4px 0;
+  font-size:17px; font-weight:600; font-variant-numeric:tabular-nums;
+}
+.mp-row input:focus{outline:none}
+.mp-row input::placeholder{font-weight:400; font-size:14px; color:var(--text-3)}
+/* 跳到今天 */
+.todaybtn{
+  border:1.5px solid var(--ink); border-radius:9px; padding:5px 9px; font-size:13px; font-weight:600;
+  background:#FAFAFC; white-space:nowrap; flex:0 0 auto;
+}
+.todaybtn:active{background:#E9E9EE}
+.actions{display:flex; gap:10px; margin-top:16px}
+.btn{flex:1; padding:13px 0; border-radius:12px; font-weight:700; font-size:16px; text-align:center; border:1.5px solid var(--ink); background:#fff}
+.btn.primary{background:var(--ink); color:#fff}
+.btn.danger{color:var(--red); border-color:var(--red)}
+.btn:active{opacity:.85}
+
+/* ---------- 月份选择 ---------- */
+.mpicker{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+.mpicker button{border:1.5px solid var(--ink); border-radius:10px; padding:12px 0; background:#fff; font-weight:600}
+.mpicker button.on{background:var(--ink); color:#fff}
+.yrow{display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom:12px}
+.yrow b{font-size:19px; font-variant-numeric:tabular-nums}
+
+/* ---------- 设置 ---------- */
+.setrow{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 0; border-bottom:1px solid var(--sep-soft)}
+.setrow:last-of-type{border-bottom:0}
+.setrow .k{font-weight:600}
+.setrow .v{font-size:12.5px; color:var(--text-3); margin-top:2px}
+.platlist{display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 4px}
+.platlist .p{display:flex; align-items:center; gap:6px; border:1.5px solid var(--ink); border-radius:20px; padding:6px 10px; background:#fff; font-size:13px; font-weight:600}
+.platlist .p .x{color:var(--red); font-weight:700}
+.addline{display:flex; gap:8px; margin-top:8px}
+.addline input{flex:1; padding:10px 12px; border:1.5px solid var(--ink); border-radius:10px; background:#fff}
+.addline button{border:1.5px solid var(--ink); border-radius:10px; padding:0 16px; background:#fff; font-weight:700}
+.toast{
+  position:fixed; left:50%; bottom:calc(96px + var(--safe-b)); transform:translateX(-50%);
+  background:rgba(28,28,30,.94); color:#fff; padding:10px 16px; border-radius:20px; font-size:14px;
+  z-index:80; opacity:0; pointer-events:none; transition:opacity .2s; max-width:80vw; text-align:center;
+}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="monthbar">
+    <button class="arrow" id="prevMonth" aria-label="上个月">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <button class="monthpill" id="monthBtn"><span id="monthLabel">—</span><i class="caret"></i></button>
+    <button class="arrow" id="nextMonth" aria-label="下个月">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+    <button class="todaybtn" id="todayBtn">今天</button>
+    <button class="gear" id="gearBtn" aria-label="设置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H2.9a2 2 0 1 1 0-4h.2A1.7 1.7 0 0 0 4.7 8a1.7 1.7 0 0 0-.4-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.5h.1A2 2 0 0 1 11 2.9V2.8a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1.1z"/></svg>
+    </button>
+  </div>
+  <div class="monthsum">
+    <span><b class="n" id="sumCount">0</b> 件</span>
+    <span>收入：<b class="n" id="sumMoney">0.00</b></span>
+    <span>支出：<b class="n" id="sumCost">0.00</b></span>
+    <span>盈利：<b class="n" id="sumNet">0.00</b></span>
+  </div>
+</header>
+
+<main id="list"></main>
+
+<button class="fab" id="fabAdd" aria-label="添加记录">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<!-- 记录表单 -->
+<div class="sheet" id="editSheet">
+  <div class="panel">
+    <div class="grab"></div>
+    <h2 id="editTitle">添加记录</h2>
+    <p class="hint">所有项都可以不填，只填你知道的就行</p>
+
+    <div class="field">
+      <label>衣服图片 <span class="opt">（可选，懒得拍就不传）</span></label>
+      <div class="pick">
+        <div id="imgBox"></div>
+        <div class="txt"><b id="imgName">未选择图片</b>没图的时候，图片位置会显示备注</div>
+        <div>
+          <div class="linkbtn" id="pickBtn">选择</div>
+          <div class="linkbtn" id="clearImg" style="color:var(--red);display:none">移除</div>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none">
+    </div>
+
+    <div class="field">
+      <label>商家 <span class="opt">（谁让我拍的）</span></label>
+      <input type="text" id="fShop" placeholder="例如：XX服饰" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label>账号 <span class="opt">（用哪个号发，例如：抖音 / 小红书）</span></label>
+      <input type="text" id="fPlat" placeholder="自己输入，也可以不填" autocomplete="off">
+      <div class="sugs" id="platSugs"></div>
+    </div>
+
+    <div class="field">
+      <label>金额 <span class="opt">（都可以不填）</span></label>
+      <div class="pick money-pick">
+        <div class="mp-row">
+          <span class="mp-tag">收入</span>
+          <input type="text" id="fAmount" inputmode="decimal" placeholder="这件我收多少钱" autocomplete="off">
+        </div>
+        <div class="mp-row">
+          <span class="mp-tag">支出</span>
+          <input type="text" id="fCost" inputmode="decimal" placeholder="投流、快递、道具…" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>日期</label>
+      <input type="date" id="fDate">
+    </div>
+
+    <div class="field">
+      <label>备注 <span class="opt">（没图时会显示在图片位置）</span></label>
+      <textarea id="fNote" placeholder="例如：黑色连衣裙，抖音已发"></textarea>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="cancelEdit">取消</button>
+      <button class="btn primary" id="saveEdit">保存</button>
+    </div>
+    <div class="actions" id="delRow" style="display:none">
+      <button class="btn danger" id="delEdit">删除这条</button>
+    </div>
+  </div>
+</div>
+
+<!-- 月份选择 -->
+<div class="sheet" id="monthSheet">
+  <div class="panel">
+    <div class="grab"></div>
+    <h2>选择月份</h2>
+    <div class="yrow">
+      <button class="arrow" id="prevYear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <b id="yearLabel">—</b>
+      <button class="arrow" id="nextYear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+    <div class="mpicker" id="monthGrid"></div>
+    <div class="actions"><button class="btn" id="closeMonth">关闭</button></div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="sheet" id="setSheet">
+  <div class="panel">
+    <div class="grab"></div>
+    <h2>设置与备份</h2>
+
+    <div class="setrow">
+      <div><div class="k">导出备份</div><div class="v">一个文件装下全部记录和图片</div></div>
+      <button class="linkbtn" id="exportBtn">导出</button>
+    </div>
+    <div class="setrow">
+      <div><div class="k">导入备份</div><div class="v">换手机、误删后恢复</div></div>
+      <button class="linkbtn" id="importBtn">导入</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+    <div class="setrow">
+      <div><div class="k">导出表格</div><div class="v">CSV，电脑上能用 Excel 打开（不含图片）</div></div>
+      <button class="linkbtn" id="csvBtn">导出</button>
+    </div>
+    <div class="setrow">
+      <div><div class="k">已存记录</div><div class="v" id="statCount">—</div></div>
+      <span></span>
+    </div>
+    <div class="setrow">
+      <div><div class="k">存储占用</div><div class="v" id="statSize">—</div></div>
+      <span></span>
+    </div>
+
+    <div class="actions"><button class="btn" id="closeSet">关闭</button></div>
+    <p style="font-size:12px;color:var(--text-3);margin:14px 0 0">
+      记录只存在这台手机的浏览器里，不会上传到任何服务器。建议每月导出一次备份存到 iCloud；换手机前先导出，在新手机上导入。
+    </p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="dragtip" id="dragTip"></div>
+<div class="undo" id="undoBar"><span id="undoText"></span><button id="undoBtn">撤销</button></div>
+
+<script src="./app.js"></script>
+</body>
+</html>
