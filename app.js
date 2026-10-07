@@ -95,11 +95,11 @@
     all: [],
     editingId: null,
     pickedPlat: '',
-    pendingBlob: null,
+    pendingImg: null,
     pendingClear: false
   };
 
-  // ---------- 图片压缩 ----------
+  // ---------- 图片压缩：输出 dataURL 字符串 ----------
   function shrinkImage(file, maxSide, quality) {
     return new Promise(function (res, rej) {
       var url = URL.createObjectURL(file);
@@ -112,41 +112,31 @@
         var c = document.createElement('canvas');
         c.width = cw; c.height = ch;
         c.getContext('2d').drawImage(img, 0, 0, cw, ch);
-        c.toBlob(function (b) {
-          if (b) res({ blob: b, w: cw, h: ch }); else rej(new Error('处理失败'));
-        }, 'image/jpeg', quality);
+        try {
+          // 直接产出 dataURL：存进数据库后任何情况都不会失效
+          res({ data: c.toDataURL('image/jpeg', quality), w: cw, h: ch });
+        } catch (e) { rej(e); }
       };
       img.onerror = function () { URL.revokeObjectURL(url); rej(new Error('读不了这张图')); };
       img.src = url;
     });
   }
-  function blobUrl(b) { return URL.createObjectURL(b); }
 
-  /* 图片地址缓存：同一条记录、同一张图，始终复用同一个 objectURL。
-     否则每次重新渲染（拖动改日期、编辑保存等）都会新建地址，
-     旧地址失效会导致图片显示不出来，必须退出重进才恢复。
+  /* 图片一律以 dataURL 字符串存储（取代 Blob）。
+     原因：iOS Safari(WebKit) 对「从 IndexedDB 读出的 Blob」再 createObjectURL
+     经常渲染失败——表现就是拖动/重新渲染后图片空白，退出重进才恢复。
+     dataURL 是普通字符串，克隆节点、存取数据库、重新渲染都不会失效。 */
+  var urlCache = {};   // id -> { url, blob }：仅用于兼容旧版存的 Blob
 
-     指纹用「id + size + lastModified」：从 IndexedDB 读出的 Blob 每次都是
-     新对象，不能比引用；而 size 单独不够（两张同尺寸的图会被误判为同一张），
-     所以带上 lastModified。若浏览器未提供该字段，退化为 size:type。 */
-  var urlCache = {};   // id -> { url, stamp }
-  var previewUrl = null;   // 表单里当前预览用的地址
-
-  /* 图片地址缓存：同一条记录、同一张图，始终复用同一个 objectURL。
-     否则每次重新渲染（拖动改日期、编辑保存等）都会新建地址，
-     旧地址失效会导致图片显示不出来，必须退出重进才恢复。
-
-     判断「图有没有换」用记录上的 imgKey：
-     保存时给每次新选的图打一个唯一标记，换图就会变，
-     只改日期/商家则不变 —— 比 size、时间戳、内容哈希都可靠。 */
   function imgUrlFor(r) {
     if (!r.image) return null;
-    var stamp = r.imgKey || 'legacy';
+    if (typeof r.image === 'string') return r.image;   // 新版：dataURL 直接用
+    // 旧数据兼容：Blob 转地址并缓存，避免每次渲染都新建
     var hit = urlCache[r.id];
-    if (hit && hit.stamp === stamp) return hit.url;
+    if (hit && hit.blob === r.image) return hit.url;
     if (hit) { try { URL.revokeObjectURL(hit.url); } catch (e) {} }
     var url = URL.createObjectURL(r.image);
-    urlCache[r.id] = { url: url, stamp: stamp };
+    urlCache[r.id] = { url: url, blob: r.image };
     return url;
   }
 
@@ -154,6 +144,7 @@
     var hit = urlCache[id];
     if (hit) { try { URL.revokeObjectURL(hit.url); } catch (e) {} delete urlCache[id]; }
   }
+  function blobUrl(b) { return URL.createObjectURL(b); }
 
   // ---------- 渲染 ----------
   function monthRecords() {
@@ -354,15 +345,14 @@
     });
   }
 
-  function showPick(blob, name) {
+  // img 可以是 dataURL 字符串（新版）或 Blob（兼容旧数据）
+  function showPick(img, name) {
     var box = $('imgBox');
-    // 释放上一次预览用的地址，避免堆积
-    if (previewUrl) { try { URL.revokeObjectURL(previewUrl); } catch (e) {} previewUrl = null; }
     box.innerHTML = '';
-    if (blob) {
-      previewUrl = URL.createObjectURL(blob);
+    var src = img ? (typeof img === 'string' ? img : imgUrlFor({ id: '__preview__', image: img })) : null;
+    if (src) {
       var im = document.createElement('img');
-      im.src = previewUrl;
+      im.src = src;
       box.appendChild(im);
       $('imgName').textContent = name || '已选择图片';
       $('clearImg').style.display = 'block';
@@ -379,7 +369,7 @@
   function openEdit(rec, presetDate) {
     state.editingId = rec ? rec.id : null;
     state.pickedPlat = rec ? (rec.plat || '') : '';
-    state.pendingBlob = null;
+    state.pendingImg = null;
     state.pendingClear = false;
 
     $('editTitle').textContent = rec ? '编辑记录' : '添加记录';
@@ -411,10 +401,9 @@
       updatedAt: Date.now()
     };
 
-    var finish = function (image, imageName, imgKey) {
+    var finish = function (image, imageName) {
       rec.image = image || null;
       rec.imageName = imageName || '';
-      rec.imgKey = rec.image ? (imgKey || 'k' + Date.now()) : '';
       dbPut(rec).then(function () {
         closeEdit();
         return reload();
@@ -426,18 +415,18 @@
       });
     };
 
-    if (state.pendingBlob) {
-      // 新选的图 → 打一个新的唯一标记，地址缓存据此重建
-      finish(state.pendingBlob, $('imgName').textContent, 'k' + Date.now() + Math.random().toString(36).slice(2, 6));
+    if (state.pendingImg) {
+      // 新选的图（dataURL）
+      finish(state.pendingImg, $('imgName').textContent);
     } else if (state.pendingClear) {
-      finish(null, '', '');
+      finish(null, '');
     } else if (state.editingId) {
       dbGet(state.editingId).then(function (old) {
-        // 没换图 → 沿用原来的标记，地址保持不变（这是修好白屏的关键）
-        finish(old ? old.image : null, old ? old.imageName : '', old ? old.imgKey : '');
-      }).catch(function () { finish(null, '', ''); });
+        // 没换图 → 沿用原来的图，不重建
+        finish(old ? old.image : null, old ? old.imageName : '');
+      }).catch(function () { finish(null, ''); });
     } else {
-      finish(null, '', '');
+      finish(null, '');
     }
   }
 
@@ -720,7 +709,7 @@
       cents: r.cents == null ? null : r.cents,
       cost: r.cost == null ? null : r.cost,
       note: r.note || '',
-      imageName: r.imageName || '', imgKey: r.imgKey || '', updatedAt: r.updatedAt || 0
+      imageName: r.imageName || '', updatedAt: r.updatedAt || 0
     };
   }
 
@@ -731,8 +720,12 @@
     state.all.forEach(function (r) {
       chain = chain.then(function () {
         if (!r.image) { out.push(plain(r)); return; }
+        // 新版图片本身就是 dataURL，直接带上；旧版 Blob 才需要转换
+        if (typeof r.image === 'string') {
+          var o = plain(r); o.image = r.image; out.push(o); return;
+        }
         return blobToDataURL(r.image).then(function (d) {
-          var o = plain(r); o.image = d; out.push(o);
+          var o2 = plain(r); o2.image = d; out.push(o2);
         });
       });
     });
@@ -764,9 +757,9 @@
           cents: cents,
           cost: cost,
           note: o.note || '',
-          image: o.image ? dataURLToBlob(o.image) : null,
+          // 备份里的图片是 dataURL 字符串，直接存
+          image: o.image ? o.image : null,
           imageName: o.imageName || '',
-          imgKey: o.imgKey || ('k' + Date.now() + Math.random().toString(36).slice(2, 6)),
           updatedAt: o.updatedAt || Date.now()
         };
       });
@@ -808,7 +801,9 @@
       var bytes = 0;
       rows.forEach(function (r) {
         bytes += JSON.stringify(plain(r)).length;
-        if (r.image && r.image.size) bytes += r.image.size;
+        // 新版图片是 dataURL 字符串，直接按长度算；旧版 Blob 用 size
+        if (typeof r.image === 'string') bytes += r.image.length;
+        else if (r.image && r.image.size) bytes += r.image.size;
       });
       $('statSize').textContent = '约 ' + fmtSize(bytes);
     });
@@ -851,7 +846,7 @@
 
     $('pickBtn').onclick = function () { $('fileInput').click(); };
     $('clearImg').onclick = function () {
-      state.pendingBlob = null;
+      state.pendingImg = null;
       state.pendingClear = true;
       showPick(null, '');
     };
@@ -860,9 +855,9 @@
       if (!f) return;
       toast('正在处理图片…');
       shrinkImage(f, 1600, 0.82).then(function (r) {
-        state.pendingBlob = r.blob;
+        state.pendingImg = r.data;      // dataURL 字符串
         state.pendingClear = false;
-        showPick(r.blob, f.name.replace(/\.[^.]+$/, '') + '（已压缩）');
+        showPick(r.data, f.name.replace(/\.[^.]+$/, '') + '（已压缩）');
         toast('图片已就绪');
       }).catch(function (e) { console.error(e); toast('图片处理失败'); });
     };
