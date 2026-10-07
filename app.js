@@ -122,6 +122,39 @@
   }
   function blobUrl(b) { return URL.createObjectURL(b); }
 
+  /* 图片地址缓存：同一条记录、同一张图，始终复用同一个 objectURL。
+     否则每次重新渲染（拖动改日期、编辑保存等）都会新建地址，
+     旧地址失效会导致图片显示不出来，必须退出重进才恢复。
+
+     指纹用「id + size + lastModified」：从 IndexedDB 读出的 Blob 每次都是
+     新对象，不能比引用；而 size 单独不够（两张同尺寸的图会被误判为同一张），
+     所以带上 lastModified。若浏览器未提供该字段，退化为 size:type。 */
+  var urlCache = {};   // id -> { url, stamp }
+  var previewUrl = null;   // 表单里当前预览用的地址
+
+  /* 图片地址缓存：同一条记录、同一张图，始终复用同一个 objectURL。
+     否则每次重新渲染（拖动改日期、编辑保存等）都会新建地址，
+     旧地址失效会导致图片显示不出来，必须退出重进才恢复。
+
+     判断「图有没有换」用记录上的 imgKey：
+     保存时给每次新选的图打一个唯一标记，换图就会变，
+     只改日期/商家则不变 —— 比 size、时间戳、内容哈希都可靠。 */
+  function imgUrlFor(r) {
+    if (!r.image) return null;
+    var stamp = r.imgKey || 'legacy';
+    var hit = urlCache[r.id];
+    if (hit && hit.stamp === stamp) return hit.url;
+    if (hit) { try { URL.revokeObjectURL(hit.url); } catch (e) {} }
+    var url = URL.createObjectURL(r.image);
+    urlCache[r.id] = { url: url, stamp: stamp };
+    return url;
+  }
+
+  function dropImgUrl(id) {
+    var hit = urlCache[id];
+    if (hit) { try { URL.revokeObjectURL(hit.url); } catch (e) {} delete urlCache[id]; }
+  }
+
   // ---------- 渲染 ----------
   function monthRecords() {
     return state.all.filter(function (r) { return monthKey(r.date) === state.month; });
@@ -235,8 +268,9 @@
 
     if (r.image) {
       var im = document.createElement('img');
-      im.src = blobUrl(r.image);
+      im.src = imgUrlFor(r);      // 复用缓存地址，重新渲染也不会失效
       im.alt = '';
+      im.loading = 'eager';
       slot.appendChild(im);
       // 规则：有图就不显示备注
     } else if (r.note) {
@@ -322,10 +356,13 @@
 
   function showPick(blob, name) {
     var box = $('imgBox');
+    // 释放上一次预览用的地址，避免堆积
+    if (previewUrl) { try { URL.revokeObjectURL(previewUrl); } catch (e) {} previewUrl = null; }
     box.innerHTML = '';
     if (blob) {
+      previewUrl = URL.createObjectURL(blob);
       var im = document.createElement('img');
-      im.src = blobUrl(blob);
+      im.src = previewUrl;
       box.appendChild(im);
       $('imgName').textContent = name || '已选择图片';
       $('clearImg').style.display = 'block';
@@ -374,9 +411,10 @@
       updatedAt: Date.now()
     };
 
-    var finish = function (image, imageName) {
+    var finish = function (image, imageName, imgKey) {
       rec.image = image || null;
       rec.imageName = imageName || '';
+      rec.imgKey = rec.image ? (imgKey || 'k' + Date.now()) : '';
       dbPut(rec).then(function () {
         closeEdit();
         return reload();
@@ -389,15 +427,17 @@
     };
 
     if (state.pendingBlob) {
-      finish(state.pendingBlob, $('imgName').textContent);
+      // 新选的图 → 打一个新的唯一标记，地址缓存据此重建
+      finish(state.pendingBlob, $('imgName').textContent, 'k' + Date.now() + Math.random().toString(36).slice(2, 6));
     } else if (state.pendingClear) {
-      finish(null, '');
+      finish(null, '', '');
     } else if (state.editingId) {
       dbGet(state.editingId).then(function (old) {
-        finish(old ? old.image : null, old ? old.imageName : '');
-      }).catch(function () { finish(null, ''); });
+        // 没换图 → 沿用原来的标记，地址保持不变（这是修好白屏的关键）
+        finish(old ? old.image : null, old ? old.imageName : '', old ? old.imgKey : '');
+      }).catch(function () { finish(null, '', ''); });
     } else {
-      finish(null, '');
+      finish(null, '', '');
     }
   }
 
@@ -680,7 +720,7 @@
       cents: r.cents == null ? null : r.cents,
       cost: r.cost == null ? null : r.cost,
       note: r.note || '',
-      imageName: r.imageName || '', updatedAt: r.updatedAt || 0
+      imageName: r.imageName || '', imgKey: r.imgKey || '', updatedAt: r.updatedAt || 0
     };
   }
 
@@ -726,6 +766,7 @@
           note: o.note || '',
           image: o.image ? dataURLToBlob(o.image) : null,
           imageName: o.imageName || '',
+          imgKey: o.imgKey || ('k' + Date.now() + Math.random().toString(36).slice(2, 6)),
           updatedAt: o.updatedAt || Date.now()
         };
       });
@@ -802,6 +843,7 @@
       if (!state.editingId) return;
       if (!confirm('确定删除这条记录？')) return;
       dbDel(state.editingId).then(function () {
+        dropImgUrl(state.editingId);
         closeEdit();
         return reload();
       }).then(function () { toast('已删除'); });
