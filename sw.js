@@ -1,5 +1,7 @@
-/* 离线缓存：装到主屏幕后没网也能打开 */
-var CACHE = 'paishe-v2';
+/* 离线缓存：装到主屏幕后没网也能打开
+   注意：每次改代码都要把这个版本号 +1，
+   否则 iOS 上的旧 Service Worker 会一直返回旧文件。 */
+var CACHE = 'paishe-v6';
 var ASSETS = [
   './',
   './index.html',
